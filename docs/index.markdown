@@ -35,8 +35,98 @@ permalink: /
 
 # Overview
 
+[Prof. Ren Ng et al.](http://graphics.stanford.edu/papers/lfcamera/lfcamera-150dpi.pdf) demonstrated that capturing images over a plane orthogonal to the optical axis (for example, along the image/sensor plane) allows one to create complex effects using very simple processing. These images of the same scene captured from different angles of view allow for post-capture refocusing and aperture resizing. Having lightfield data is especially useful for photographers because they no longer have to trade off controlling depth of field to control motion blur, and vice versa. My goal was to recreate these effects using real lightfield data.
 
-# Summary
+I used the rectified images provided in the [Stanford Light Field Archive](http://lightfield.stanford.edu/lfs.html), which has sample datasets comprising of multiple images taken over a regularly spaced grid. I use alignment and averaging methods to implement depth refocusing and aperture adjustment on the sample data.
+
+Note: if the GIFs don't play properly, reload or open the GIF in a new tab.
+
+# Part 1.1: Depth Refocusing
+
+The objects which are far away from the camera do not vary their position significantly when the camera moves around while keeping the optical axis direction unchanged. The nearby objects, on the other hand, vary their position significantly across images. Averaging all the images in the grid without any shifting will produce an image which is sharp around the far-away objects but blurry around the nearby ones. Similarly, shifting the images "appropriately" and then averaging allows one to focus on object at different depths. 
+
+Each sub-aperture image in the Stanford dataset can be seen as the light from a different part of a "universal aperture" (or the same "back of the lens" picture taken many times from slightly different positions). These images can be thought of as light rays because each (x, y) position on the image plane and (u, v) position on the aperture plane uniquely define a ray. In the dataset, the (x, y) is fixed while (u, v) is varied. This gives us a set of rays that will be integrated by a single point on the image plane, which we repeat for every point on the image plane.
+
+Using this idea, I implement a function to generate images focusing on different depths. After extracting sub-aperture positional information by parsing the filenames of images in the dataset, I determined the position of the center microlens. Since the Stanford Light Field Archive datasets I used have a 17x17 microlens array, I used (8, 8) as the center. I then implemented my depth refocusing algorithm as follows (with guidance from past lecture slides):
+
+1. For each sub-aperture image I(x, y):
+    1. Calculate the displacement (u, v) from the center.
+    2. Shift the sub-aperture image by C * (u, v), where C is an arbitrary scaling factor. If shifts are not integers, bilinear interpolation may be needed.
+2. Average all of the shifted images.
+
+Note that a larger C means refocusing further from the physical focus, and the sign of C affects whether we are focusing closer or further.
+
+I initially used `np.roll` to actually shift the image, but I switched to `scipy.ndimage.shift` so allow for non-integer shifts when using fractional values of C. Because of system limitations and image sizes, I used `order = 1` (linear) as the interpolation parameter because the visual difference between images interpolated at `order = 1` and `order = 3` was very minimal, with an *~8x speedup*. 
+
+<p align="center">
+    <img src="./img/ordertest0.jpg" alt="ad" width="22%"/>
+    <img src="./img/ordertest1.jpg" alt="ad" width="22%"/>
+    <img src="./img/ordertest2.jpg" alt="ad" width="22%"/>
+    <img src="./img/ordertest3.jpg" alt="ad" width="22%"/>
+    <p style="text-align: center;"><i>The same image interpolated using order 0, 1, 2, and 3. The significant performance improvement justifies the *slight*, hardly noticeable decrease in interpolation quality.</i></p>
+</p>
+
+Here are my results on different datasets:
+
+<p align="center">
+    <img src="./img/chess_depth_withreverse.gif" alt="ad" width="95%"/>
+    <p style="text-align: center;"><i>Chess; generated with evenly spaced C = -0.5 to 3.0</i></p>
+</p>
+
+<p align="center">
+    <img src="./img/flower_depth_withreverse.gif" alt="ad" width="95%"/>
+    <p style="text-align: center;"><i>Eucalpytus flowers; generated with evenly spaced C = -0.5 to 3.0</i></p>
+</p>
+
+<p align="center">
+    <img src="./img/stone_depth_withreverse.gif" alt="ad" width="95%"/>
+    <p style="text-align: center;"><i>Amethyst; generated with evenly spaced C = -1.5 to 3.0</i></p>
+</p>
+
+<p align="center">
+    <img src="./img/truck_depth_withreverse.gif" alt="ad" width="95%"/>
+    <p style="text-align: center;"><i>Lego Bulldozer; generated with evenly spaced C = -1.5 to 3.0</i></p>
+</p>
+
+# Part 1.2: Aperture Adjustment
+
+Averaging a large number of images sampled over the grid perpendicular to the optical axis mimics a camera with a much larger aperture, and using fewer images results in an image that mimics a smaller aperture. 
+
+To change the aperture, I modified my shift function to add an aperture threshold in order to reduce the number of images we use in our averaging, and also to reduce the shift of the images we do choose to include. The aperture threshold sets the maximum radius from the center that we will include in our average image. If the threshold is large, we'd average over many images and create a larger aperture, or a shallow depth of field.
+
+A brief note about noise: having more sub-aperture images in the result may introduce more noise/blur because of the distance between sub-apertures and their slight difference in views.
+
+Here are my results on different datasets. For all results, I use an aperture threshold of 0 to 10. The value of C is held constant across these images and is specified in the caption of each output.
+
+<p align="center">
+    <img src="./img/chess_aperture_withreverse.gif" alt="ad" width="95%"/>
+    <p style="text-align: center;"><i>Chess; C = 1.0 </i></p>
+</p>
+
+<p align="center">
+    <img src="./img/flower_aperture_withreverse.gif" alt="ad" width="95%"/>
+    <p style="text-align: center;"><i>Eucalpytus flowers; C = 2.5</i></p>
+</p>
+
+<p align="center">
+    <img src="./img/stone_aperture_withreverse_final.gif" alt="ad" width="95%"/>
+    <p style="text-align: center;"><i>Amethyst; C = 0.8</i></p>
+</p>
+
+<p align="center">
+    <img src="./img/truck_aperture_withreverse.gif" alt="ad" width="95%"/>
+    <p style="text-align: center;"><i>Lego Bulldozer; C = 2.5</i></p>
+</p>
+
+<p align="center">
+    <img src="./img/ball_aperture_withreverse.gif" alt="ad" width="95%"/>
+    <p style="text-align: center;"><i>Crystal Ball; C = 0.1</i></p>
+</p>
+
+
+# Part 1.3: Summary
+
+I was impressed by how the simple idea of placing multiple sensors, combined with elementary operations, can lead to really interesting results. I looked up more information about the Lytro camera (R.I.P.) and it made me interested in actually getting on to experiment. I learned a lot about computational photography through this project, and definitely feel like I have a better grasp on how to manipulate rays and the nuances of depth focusing and aperture. If I had more time, I would've tried to set up my own setup to take photos simulating different rays in the same scene to try to create my own dataset.
 
 
 # **Project 2: High Dynamic Range Imaging**
